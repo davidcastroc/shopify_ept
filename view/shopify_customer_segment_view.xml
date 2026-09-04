@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<odoo>
+    <record id="view_shopify_customer_segment_tree" model="ir.ui.view">
+        <field name="name">shopify.customer.segment.ept.tree</field>
+        <field name="model">shopify.customer.segment.ept</field>
+        <field name="arch" type="xml">
+            <list string="Shopify Customer Segments"  create="false" delete="false">
+                <field name="name"/>
+                <field name="shopify_instance_id"/>
+                <field name="odoo_tag_id"/>
+                <field name="partner_count"/>
+                <field name="last_synced_on"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_shopify_customer_segment_form" model="ir.ui.view">
+        <field name="name">shopify.customer.segment.ept.form</field>
+        <field name="model">shopify.customer.segment.ept</field>
+        <field name="arch" type="xml">
+            <form string="Shopify Customer Segment" create="false" delete="false">
+                <header>
+                    <button name="sync_segment_members"
+                            string="Sync Members"
+                            type="object"
+                            class="oe_highlight"
+                            help="Fetch members from Shopify and update partner tags."/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1>
+                            <field name="name"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="shopify_instance_id" readonly="1"/>
+                            <field name="odoo_tag_id" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="partner_count"/>
+                            <field name="last_synced_on"/>
+                        </group>
+                    </group>
+                    <group string="Segment Query">
+                        <field name="query" nolabel="1"/>
+                    </group>
+                    <notebook>
+                        <page string="Members" name="members_page">
+                            <field name="member_ids" nolabel="1" readonly="1">
+                                <list string="Segment Members" create="false" delete="false">
+                                    <field name="shopify_display_name"/>
+                                    <field name="first_name"/>
+                                    <field name="last_name"/>
+                                    <field name="email"/>
+                                    <field name="number_of_orders"/>
+                                    <field name="amount_spent"/>
+                                    <field name="currency_code"/>
+                                    <field name="partner_id"/>
+                                </list>
+                                <form string="Segment Member" create="false" delete="false">
+                                    <group>
+                                        <group>
+                                            <field name="shopify_display_name"/>
+                                            <field name="first_name"/>
+                                            <field name="last_name"/>
+                                            <field name="email"/>
+                                        </group>
+                                        <group>
+                                            <field name="number_of_orders"/>
+                                            <field name="amount_spent"/>
+                                            <field name="currency_code"/>
+                                            <field name="partner_id"/>
+                                        </group>
+                                    </group>
+                                </form>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_shopify_customer_segment_search" model="ir.ui.view">
+        <field name="name">shopify.customer.segment.ept.search</field>
+        <field name="model">shopify.customer.segment.ept</field>
+        <field name="type">search</field>
+        <field name="arch" type="xml">
+            <search string="Search Customer Segments">
+                <field name="name"/>
+                <field name="shopify_instance_id"/>
+                <field name="odoo_tag_id"/>
+                <separator/>
+                <filter name="filter_synced" string="Synced" domain="[('last_synced_on', '!=', False)]"/>
+                <filter name="filter_not_synced" string="Not Synced" domain="[('last_synced_on', '=', False)]"/>
+                <filter name="filter_with_tag" string="Has Tag" domain="[('odoo_tag_id', '!=', False)]"/>
+                <separator/>
+                <group>
+                    <filter name="group_by_instance" string="Instance" context="{'group_by': 'shopify_instance_id'}"/>
+                    <filter name="group_by_tag" string="Tag" context="{'group_by': 'odoo_tag_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_shopify_customer_segment" model="ir.actions.act_window">
+        <field name="name">Customer Segments</field>
+        <field name="res_model">shopify.customer.segment.ept</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_shopify_customer_segment_search"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                No segments yet. Use the Import wizard to fetch them from Shopify.
+            </p>
+        </field>
+    </record>
+
+    <menuitem id="menu_shopify_customer_segment"
+              name="Customer Segments"
+              parent="shopify_ept.shopify_menu_item_sales"
+              action="action_shopify_customer_segment"
+              sequence="25"/>
+</odoo>

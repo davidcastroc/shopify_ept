@@ -1,0 +1,235 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ═══════════════════════════════════════════════════════════
+         LIST VIEW
+    ═══════════════════════════════════════════════════════════ -->
+    <record id="shopify_market_ept_list_view" model="ir.ui.view">
+        <field name="name">shopify.market.ept.list</field>
+        <field name="model">shopify.market.ept</field>
+        <field name="arch" type="xml">
+            <list string="Shopify Markets"
+                  create="false"
+                  delete="false"
+                  decoration-muted="not enabled"
+                  decoration-success="primary">
+                <field name="name"/>
+                <field name="shopify_instance_id"/>
+                <field name="handle"/>
+                <field name="country_ids" widget="many2many_tags"/>
+                <field name="company_id"/>
+                <field name="warehouse_id"/>
+                <field name="pricelist_id"/>
+                <field name="fiscal_position_id"/>
+                <field name="primary" widget="boolean_toggle" readonly="1"/>
+                <field name="enabled" widget="boolean_toggle" readonly="1"/>
+                <field name="order_count" string="Orders"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- ═══════════════════════════════════════════════════════════
+         FORM VIEW
+    ═══════════════════════════════════════════════════════════ -->
+    <record id="shopify_market_ept_form_view" model="ir.ui.view">
+        <field name="name">shopify.market.ept.form</field>
+        <field name="model">shopify.market.ept</field>
+        <field name="arch" type="xml">
+            <form string="Shopify Market" create="false">
+                <sheet>
+                    <!-- Smart Buttons -->
+                    <div class="oe_button_box" name="button_box">
+                        <button name="action_view_orders_ept"
+                                type="object"
+                                class="oe_stat_button"
+                                icon="fa-shopping-cart"
+                                invisible="order_count == 0">
+                            <field name="order_count" widget="statinfo" string="Orders"/>
+                        </button>
+                    </div>
+
+                    <!-- Primary ribbon -->
+                    <!-- <div class="ribbon ribbon-top-right" invisible="not primary">
+                        <span class="bg-success"
+                              style="left: -4px !important; top: 20px !important;">
+                            Primary
+                        </span>
+                    </div> -->
+
+                    <div>
+                        <h1>
+                            <field name="name" readonly="1" placeholder="Market Name"/>
+                        </h1>
+                    </div>
+
+                    <!-- Disabled warning banner -->
+                    <div class="alert alert-warning" role="alert" invisible="enabled">
+                        This market is <strong>Disabled</strong> in Shopify and will not be used for order routing.
+                    </div>
+
+                    <!-- Identity Section (auto-filled from Shopify) -->
+                    <group string="Shopify Identity" name="identity_group">
+                        <group>
+                            <field name="shopify_instance_id"
+                                   readonly="1"
+                                   options="{'no_create': True, 'no_open': True}"/>
+                            <field name="shopify_market_id" readonly="1"/>
+                            <field name="handle" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="primary" readonly="1" widget="boolean_toggle"/>
+                            <field name="enabled" readonly="1" widget="boolean_toggle"/>
+                            <field name="web_presence_domain" readonly="1"/>
+                        </group>
+                    </group>
+
+                    <!-- Odoo Mapping Section (user configures) -->
+                    <group string="Odoo Mapping Configuration" name="mapping_group">
+                        <group>
+                            <field name="company_id"
+                                   required="1"
+                                   options="{'no_create': True}"
+                                   readonly="order_count > 0"/>
+                            <field name="warehouse_id"
+                                   required="1"
+                                   options="{'no_create': True}"
+                                   domain="[('company_id', '=', company_id)]"/>
+                            <field name="pricelist_id"
+                                   required="1"
+                                   options="{'no_create': True}"
+                                   domain="[('company_id', '=', company_id)]"/>
+                        </group>
+                        <group>
+                            <field name="fiscal_position_id"
+                                   options="{'no_create': True}"
+                                   domain="['|', ('company_id', '=', False), ('company_id', '=', company_id)]"/>
+                            <field name="lang_id"
+                                   options="{'no_create': True}"/>                           
+                            
+                            <field name="credit_note_payment_journal"
+                                   required="1" domain="[('company_id', '=', company_id), ('type', 'in', ['cash','bank'])]"
+                                   options="{'no_create': True}"/>
+                        </group>
+                    </group>
+                    <group string="Tax Configuration" name="tax_configuration_group">
+                        <group>
+                            <field name="apply_tax_in_order"/>
+                            <field name="shopify_tax_grid_id" invisible="apply_tax_in_order != 'create_shopify_tax'"/>
+                            <field name="credit_tax_account_id" required="apply_tax_in_order == 'create_shopify_tax' and shopify_instance_id" invisible="apply_tax_in_order != 'create_shopify_tax'"/>
+                            <field name="invoice_tax_account_id" required="apply_tax_in_order == 'create_shopify_tax' and shopify_instance_id" invisible="apply_tax_in_order != 'create_shopify_tax'"/>
+                                
+                        </group>
+                        <group>
+                            <field name="is_create_tax_group" invisible="apply_tax_in_order != 'create_shopify_tax'"/>
+                            <field name="tax_group_payable_account_id" required="is_create_tax_group and shopify_instance_id" invisible="is_create_tax_group != True or apply_tax_in_order != 'create_shopify_tax'"/>
+                            <field name="tax_group_receivable_account_id" required="is_create_tax_group and shopify_instance_id" invisible="is_create_tax_group != True or apply_tax_in_order != 'create_shopify_tax'"/>
+                                                    
+                        </group>
+                    </group>
+
+
+                    <!-- Countries / Regions -->
+                    <group string="Market Countries / Regions" name="countries_group">
+                        <field name="country_ids"
+                               widget="many2many_tags"
+                               nolabel="1"
+                               options="{'no_create': True}" style="width: 500%;"/>
+                    </group>
+
+
+                    <notebook>
+                        
+                        <page string="Financial Status Configurations" name="financial_status_config_page">
+                            <field name="financial_status_configuration_ids" nolabel="1" context="{'default_shopify_market_id': id}">
+                                <list editable="bottom">                                    
+                                    <field name="shopify_instance_id" readonly="1" column_invisible="1"/>
+                                    <field name="payment_gateway_id" options="{'no_create':True}" required="1" domain="[('shopify_instance_id','=',shopify_instance_id)]"/>
+                                    <field name="payment_term_id" />                                    
+                                    <field name="auto_workflow_id" options="{'no_create':True}" required="1"/>  
+                                    <field name="financial_status"/>  
+                                    <field name="shopify_order_payment_status"/>
+                                </list>
+                                <form string="Financial Status Configuration">
+                                    <group>
+                                        <group>
+                                            <field name="shopify_market_id" readonly="1"/>
+                                            <field name="shopify_instance_id" readonly="1"/>
+                                            <field name="financial_status"/>
+                                        </group>
+                                        <group>
+                                            <field name="shopify_order_payment_status"/>
+                                            <field name="payment_gateway_id"/>
+                                            <field name="auto_workflow_id"/>
+                                            <field name="payment_term_id"/>
+                                            <field name="active"/>
+                                        </group>
+                                    </group>
+                                </form>
+                            </field>
+                        </page>
+                    </notebook>
+                    
+                </sheet>
+
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <!-- ═══════════════════════════════════════════════════════════
+         SEARCH VIEW
+    ═══════════════════════════════════════════════════════════ -->
+    <record id="shopify_market_ept_search_view" model="ir.ui.view">
+        <field name="name">shopify.market.ept.search</field>
+        <field name="model">shopify.market.ept</field>
+        <field name="arch" type="xml">
+            <search string="Search Markets">
+                <field name="name"/>
+                <field name="shopify_instance_id"/>
+                <field name="company_id"/>
+                <filter name="primary" string="Primary" domain="[('primary', '=', True)]"/>
+                <filter name="enabled" string="Enabled" domain="[('enabled', '=', True)]"/>
+                <filter name="disabled" string="Disabled" domain="[('enabled', '=', False)]"/>
+                <filter name="archived" string="Archived" domain="[('active', '=', False)]"/>
+                <group>
+                    <filter name="group_instance" string="Instance"
+                            context="{'group_by': 'shopify_instance_id'}"/>
+                    <filter name="group_company" string="Company"
+                            context="{'group_by': 'company_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- ═══════════════════════════════════════════════════════════
+         WINDOW ACTION
+    ═══════════════════════════════════════════════════════════ -->
+    <record id="action_shopify_market_ept" model="ir.actions.act_window">
+        <field name="name">Shopify Markets</field>
+        <field name="res_model">shopify.market.ept</field>
+        <field name="view_mode">list,form</field>
+        <field name="context">{"create": False, "delete": False}</field>
+        <field name="search_view_id" ref="shopify_market_ept_search_view"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                No Shopify Markets found.
+            </p>
+            <p>
+                Click <b>Sync Markets</b> on your Shopify Instance to import
+                markets from your Shopify store, then configure each market
+                with the appropriate company, warehouse, pricelist and fiscal position.
+            </p>
+        </field>
+    </record>
+
+    <!-- ═══════════════════════════════════════════════════════════
+         MENU ITEM  (under Configuration)
+    ═══════════════════════════════════════════════════════════ -->
+    <menuitem id="menu_shopify_markets_ept"
+              name="Markets"
+              parent="shopify_ept.menu_configuration_ept"
+              action="action_shopify_market_ept"
+              sequence="109"
+              groups="shopify_ept.group_shopify_manager_ept"/>
+
+</odoo>

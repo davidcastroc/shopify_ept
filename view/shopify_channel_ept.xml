@@ -1,0 +1,105 @@
+<?xml version="1.0" ?>
+<odoo>
+    <record id="shopify_channel_ept_list_view" model="ir.ui.view">
+        <field name="name">shopify.channel.ept.list</field>
+        <field name="model">shopify.channel.ept</field>
+        <field name="arch" type="xml">
+            <list string="Shopify Sales Channels" create="false" edit="false" expand="1">
+                <field name="name"/>
+                <field name="shopify_instance_id"/>
+                <field name="handle"/>
+                <field name="shopify_id"/>
+                <field name="app_id"/>
+                <field name="analytic_account_id"/>
+                <field name="exclude_from_import" widget="boolean_toggle"
+                       string="Exclude from Import"
+                       optional="show"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="shopify_channel_ept_form_view" model="ir.ui.view">
+        <field name="name">shopify.channel.ept.form</field>
+        <field name="model">shopify.channel.ept</field>
+        <field name="arch" type="xml">
+            <form string="Shopify Sales Channel" create="false">
+                <sheet>
+                    <div class="oe_title">
+                        <label for="name"/>
+                        <h1>
+                            <field name="name" placeholder="Channel Name" readonly="1"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <group string="Shopify Info">
+                            <field name="shopify_instance_id" readonly="1"
+                                   options="{'no_create': True, 'no_create_edit': True}"/>
+                            <field name="shopify_id" readonly="1"/>
+                            <field name="app_id" readonly="1"/>
+                            <field name="handle" readonly="1"/>
+                        </group>
+                        <group string="Analytic Mapping">
+                            <field name="analytic_account_id"
+                                   options="{'no_quick_create': True}"
+                                   groups="analytic.group_analytic_accounting"/>
+                        </group>
+                        <group string="Import Settings">
+                            <field name="exclude_from_import"/>
+                        </group>
+                    </group>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="shopify_channel_ept_search_view" model="ir.ui.view">
+        <field name="name">shopify.channel.ept.search</field>
+        <field name="model">shopify.channel.ept</field>
+        <field name="arch" type="xml">
+            <search string="Shopify Sales Channels">
+                <field name="name"/>
+                <field name="shopify_instance_id"/>
+                <field name="handle"/>
+                <field name="analytic_account_id"/>
+                <filter name="filter_excluded" string="Excluded from Import"
+                        domain="[('exclude_from_import', '=', True)]"/>
+                <filter name="filter_active" string="Included in Import"
+                        domain="[('exclude_from_import', '=', False)]"/>
+                <group>
+                    <filter name="group_by_instance" string="Instance"
+                            context="{'group_by': 'shopify_instance_id'}"/>
+                    <filter name="group_by_analytic" string="Analytic Account"
+                            context="{'group_by': 'analytic_account_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_shopify_channel_ept" model="ir.actions.act_window">
+        <field name="name">Shopify Sales Channels</field>
+        <field name="res_model">shopify.channel.ept</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="shopify_channel_ept_search_view"/>
+        <field name="domain">[('shopify_instance_id.use_channel_analytic_account', '=', True)]</field>
+        <field name="context">{'search_default_group_by_instance': 1}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                No Shopify sales channels found.
+            </p>
+            <p>
+                Use the <b>Sync Channels</b> button on the Shopify Instance to pull
+                all available sales channels from Shopify and map them to analytic
+                accounts for revenue / cost / profitability reporting.
+            </p>
+        </field>
+    </record>
+
+    <menuitem id="shopify_channel_ept_menu"
+              name="Sales Channels"
+              parent="shopify_ept.menu_configuration_ept"
+              sequence="10"
+              action="action_shopify_channel_ept"
+              groups="shopify_ept.group_shopify_manager_ept"/>
+</odoo>
+

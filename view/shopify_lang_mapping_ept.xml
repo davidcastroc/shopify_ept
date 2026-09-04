@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+
+    <!-- Tree / List view -->
+    <record id="view_shopify_lang_mapping_ept_tree" model="ir.ui.view">
+        <field name="name">shopify.lang.mapping.ept.tree</field>
+        <field name="model">shopify.lang.mapping.ept</field>
+        <field name="arch" type="xml">
+            <list string="Shopify Language Mappings" editable="bottom">
+                <field name="shopify_instance_id" optional="hide"/>
+                <field name="shopify_locale" placeholder="e.g. fr"/>
+                <field name="odoo_lang_id" options="{'no_create': True}"/>
+                <field name="is_primary"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Form view -->
+    <record id="view_shopify_lang_mapping_ept_form" model="ir.ui.view">
+        <field name="name">shopify.lang.mapping.ept.form</field>
+        <field name="model">shopify.lang.mapping.ept</field>
+        <field name="arch" type="xml">
+            <form string="Shopify Language Mapping">
+                <sheet>
+                    <group>
+                        <field name="shopify_instance_id" required="1"
+                               options="{'no_create': True}"/>
+                        <field name="shopify_locale"
+                               placeholder="e.g. fr"/>
+                        <field name="odoo_lang_id"
+                               options="{'no_create': True}"/>
+                        <field name="is_primary"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Action -->
+    <record id="action_shopify_lang_mapping_ept" model="ir.actions.act_window">
+        <field name="name">Shopify Language Mappings</field>
+        <field name="type">ir.actions.act_window</field>
+        <field name="res_model">shopify.lang.mapping.ept</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                No language mappings found.
+            </p>
+            <p>
+                Add a mapping for each Shopify locale (e.g. <em>fr</em>) and
+                link it to the corresponding Odoo language. Mark exactly one
+                mapping as <strong>Primary Language</strong>.
+            </p>
+        </field>
+    </record>
+
+</odoo>
+

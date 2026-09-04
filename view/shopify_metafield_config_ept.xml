@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+
+    <record id="view_shopify_metafield_config_tree" model="ir.ui.view">
+        <field name="name">shopify.metafield.config.list</field>
+        <field name="model">shopify.metafield.config.ept</field>
+        <field name="arch" type="xml">
+            <list string="Shopify Metafield Configurations" editable="bottom" create="false" open_form_view="true"  default_order="instance_id, namespace, key"
+            decoration-info="odoo_field_id and not sync_direction">                
+                <field name="active" widget="boolean_toggle"/>
+                <field name="name"/>   
+                <field name="key" optional="hide"/>             
+                <field name="model_id" optional="hide" string="Odoo Model"/>  
+                <field name="value_type"/>    
+                <field name="allowed_odoo_types" column_invisible="1"/>          
+                <field name="odoo_field_id"  domain="[('model_id','=',model_id),('store','=',True),
+                ('name','not in',['id','create_uid','create_date','write_uid','write_date','__last_update']),
+                ('ttype', 'in', allowed_odoo_types and allowed_odoo_types or [])]"
+                                options="{'no_create': True}"/>
+                <field name="sync_direction" widget="radio" options="{'horizontal': true}"/>
+                <field name="namespace" optional="hide"/>  
+                <field name="instance_id" optional="hide"/>  
+            </list>
+        </field>
+    </record>
+
+    <record id="view_shopify_metafield_config_form" model="ir.ui.view">
+        <field name="name">shopify.metafield.config.form</field>
+        <field name="model">shopify.metafield.config.ept</field>
+        <field name="arch" type="xml">
+            <form string="Shopify Metafield Configuration" create="false" delete="false" 
+            duplicate="false">  
+                <sheet>
+
+                    <!-- Title -->
+                    <div class="oe_title">
+                        <h1>
+                            <field name="name" placeholder="Name"/>
+                        </h1>
+                    </div>
+
+                    <group>
+                        <group string="Shopify Information">
+                            <field name="instance_id" required="1" options="{'no_create': True}"/>
+                            <field name="namespace" readonly="1"/>
+                            <field name="key" readonly="1"/>
+                            <field name="meta_field_id" readonly="1"/>
+                            <field name="value_type" readonly="1"/>
+                            <field name="description" readonly="1"/>
+                        </group>
+
+                        <group string="Odoo Mapping">
+                            <field name="model_id" readonly="1"/>
+                            <field name="odoo_field_id"                               
+                                domain="[('model_id','=',model_id),('store','=',True),
+                                ('name','not in',['id','create_uid','create_date','write_uid','write_date','__last_update']),
+                                ('ttype', 'in', allowed_odoo_types and allowed_odoo_types or [])]"                                
+                                options="{'no_create': True}"/>
+
+                            <field name="sync_direction" widget="radio"/>
+                        </group>
+                    </group>
+
+                    <notebook>
+                        <page string="Validation Rules">
+                            <field name="validations"
+                                widget="json"
+                                placeholder='{"min": 1, "max": 100}' readonly="1"/>
+                        </page>
+
+                        <page string="Technical Info">
+                            <group>
+                                <field name="create_uid" readonly="1"/>
+                                <field name="create_date" readonly="1"/>
+                                <field name="write_uid" readonly="1"/>
+                                <field name="write_date" readonly="1"/>
+                            </group>
+                        </page>
+                    </notebook>
+
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_shopify_metafield_config_search" model="ir.ui.view">
+        <field name="name">shopify.metafield.config.search</field>
+        <field name="model">shopify.metafield.config.ept</field>
+        <field name="arch" type="xml">
+            <search string="Search Metafield Configurations">
+                <field name="name"/>
+                <field name="instance_id"/>
+                <field name="namespace"/>
+                <field name="key"/>
+                <field name="model_id"/>
+                <field name="sync_direction"/>
+                <filter string="Archived"
+                        name="archived"
+                        domain="[('active','=',False)]"
+                       />
+                <separator/>
+                <filter string="Import Only"
+                        name="import"
+                        domain="[('sync_direction','=','import')]"/>
+
+                <filter string="Update Only"
+                        name="update"
+                        domain="[('sync_direction','=','update')]"/>
+
+                <filter string="Both"
+                        name="both"
+                        domain="[('sync_direction','=','both')]"/>
+
+                <separator/>
+                <filter string="Custom Namespace"
+                    name="custom_namespace"
+                    domain="[('namespace','=','custom')]"/>
+
+                <separator/>
+                <filter string="Odoo Field Set"
+                    name="odoo_field_set"
+                    domain="[('odoo_field_id','!=',False)]"/>
+                <separator/>
+                <group>
+                    <filter string="Instance" name="group_by_instance" context="{'group_by': 'instance_id'}"/>
+                    <filter string="Model (Owner Type)" name="group_by_model" context="{'group_by': 'model_id'}"/>
+                    <filter string="Namespace" name="group_by_namespace" context="{'group_by': 'namespace'}"/>      
+                    <filter string="Sync Direction" name="group_by_sync_direction" context="{'group_by': 'sync_direction'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_shopify_metafield_config" model="ir.actions.act_window">
+        <field name="name">Metafield Configurations</field>
+        <field name="res_model">shopify.metafield.config.ept</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_shopify_metafield_config_search"/>
+        <field name="context">{'default_active': True,'search_default_custom_namespace':1}</field>
+    </record>
+
+    <menuitem id="menu_shopify_metafield_config"
+          name="Metafield Configurations"
+          parent="shopify_ept.menu_configuration_ept"             
+          action="action_shopify_metafield_config"
+        sequence="110"/>     
+</odoo>

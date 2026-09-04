@@ -1,0 +1,55 @@
+<odoo>
+  <template id="oauth_success_template">
+    <div style="max-width: 600px; margin: 40px auto; padding: 32px; background: #f4f8fb; border-radius: 8px; border: 1px solid #b5d6f6;">
+      <h2 style="color: #2d7a2d;">Shopify OAuth Success</h2>
+      <t t-if="token_expiry_seconds and access_token">
+        <div id="token-expiry-info" style="color: #c0392b; font-weight: bold; margin-bottom: 12px;">
+          <span>This token will be hidden in <span id="token-expiry-timer"><t t-esc="token_expiry_seconds"/></span> seconds for security reasons.Token display will expire. Please copy and save it securely.</span>
+        </div>
+      </t>
+      <div id="token-block">
+        <p>
+          <b>Access Token:</b>
+          <span style="display: inline-block; background: #eaf6ff; color: #0077cc; font-weight: bold; padding: 6px 10px; border-radius: 4px; word-break: break-all;">
+            <span t-esc="access_token"/>
+          </span>
+        </p>
+      </div>
+      <p><b>Shop:</b> <span t-esc="shop"/></p>
+      <t t-if="token_expiry_seconds and access_token">
+        <script type="text/javascript">
+          <![CDATA[
+          (function() {
+            var timerSpan = document.getElementById('token-expiry-timer');
+            if (!timerSpan) return;
+            var seconds = parseInt(timerSpan.textContent);
+            var timer = setInterval(function() {
+              seconds--;
+              timerSpan.textContent = seconds;
+              if (seconds <= 0) {
+                clearInterval(timer);
+                var tokenBlock = document.getElementById('token-block');
+                if (tokenBlock) {
+                  tokenBlock.innerHTML = '<span style="color: #c0392b; font-weight: bold;">Token is now hidden for your security.</span>';
+                }
+                var expiryInfo = document.getElementById('token-expiry-info');
+                if (expiryInfo) {
+                  expiryInfo.innerHTML = '<span style="color: #888;">Token display expired.</span>';
+                }
+              }
+            }, 1000);
+          })();
+          ]]>
+        </script>
+      </t>
+    </div>
+  </template>
+  <template id="oauth_error_template">
+    <div style="max-width: 600px; margin: 40px auto; padding: 32px; background: #fff4f4; border-radius: 8px; border: 1px solid #f6b5b5;">
+      <h2 style="color: #c0392b;">Shopify OAuth Error</h2>
+      <p><b>Error:</b> <span t-esc="error"/></p>
+      <p><b>Description:</b> <span t-esc="error_description"/></p>
+      <p style="margin-top: 24px; color: #888;">Please check your app configuration or try again.</p>
+    </div>
+  </template>
+</odoo>

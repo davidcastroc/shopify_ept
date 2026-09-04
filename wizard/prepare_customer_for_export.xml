@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <record id="view_prepare_customer_for_export_ept" model="ir.ui.view">
+        <field name="name">shopify.prepare.customer.for.export.form.ept</field>
+        <field name="model">shopify.prepare.customer.for.export.ept</field>
+        <field name="arch" type="xml">
+            <form string="Prepare Customer for Export">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="shopify_instance_id" options="{'no_create': True, 'no_create_edit': True}"/>
+                        </group>
+                        <group>
+                            <field name="partner_ids" widget="many2many_tags" readonly="1"/>
+                        </group>
+                    </group>
+                    <div>
+                        <p class="alert alert-warning" role="alert">
+                            <u>
+                                <h3 style="font-weight:bold;color:#7d5a29">Note :</h3>
+                            </u>
+                            <b>
+                                <ol>
+                                    <li>Select Shopify instance for the selected customers.</li>
+                                    <li>Selected customers are populated from current list/form selection.</li>
+                                    <li>Customer email is mandatory for Shopify export.</li>
+                                    <li>Selected customers will be filtered based on export eligibility before customer queue is created.</li>
+                                    <li>If a draft queue line already exists for the selected customer, the customer data will be updated in the existing queue line.</li>
+                                </ol>
+                            </b>
+                        </p>
+                    </div>
+                    <footer>
+                        <button string="Create Queues" type="object" name="export_customer_to_shopify"
+                                class="oe_highlight"/>
+                        <button string="Close" class="oe_highlight" special="cancel"/>
+                    </footer>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_prepare_customer_for_export_ept" model="ir.actions.act_window">
+        <field name="name">Shopify - Prepare Customer for Export</field>
+        <field name="res_model">shopify.prepare.customer.for.export.ept</field>
+        <field name="binding_model_id" ref="base.model_res_partner"/>
+        <field name="binding_view_types">form,list</field>
+        <field name="target">new</field>
+        <field name="view_id" ref="shopify_ept.view_prepare_customer_for_export_ept"/>
+        <field name="context">{'default_partner_ids': active_ids}</field>
+        <field name="group_ids" eval="[(4, ref('shopify_ept.group_shopify_ept'))]"/>
+    </record>
+</odoo>

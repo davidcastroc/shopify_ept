@@ -1,0 +1,82 @@
+<?xml version="1.0" ?>
+<odoo>
+    <record id="shopify_payment_terms_ept_tree_view" model="ir.ui.view">
+        <field name="name">shopify.payment.terms.ept.tree</field>
+        <field name="model">shopify.payment.terms.ept</field>
+        <field name="arch" type="xml">
+            <list sample="1" editable="bottom" string="Shopify Payment Terms">
+                <header>
+                    <button name="action_sync_shopify_payment_terms" string="Sync" type="object" display="always"/>
+                </header>
+                <field name="name"/>
+                <field name="instance_id" options="{'no_create':True,'no_create_edit': True}"/>
+                <field name="shopify_payment_term_id" optional="hide" readonly="True"/>
+                <field name="shopify_payment_term_gid" optional="hide" readonly="True"/>
+                <field name="odoo_payment_term_id"/>
+                <field name="payment_term_type" readonly="True"/>
+                <field name="default"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="shopify_payment_terms_ept_form_view" model="ir.ui.view">
+        <field name="name">shopify.payment.terms.ept.form</field>
+        <field name="model">shopify.payment.terms.ept</field>
+        <field name="arch" type="xml">
+            <form string="Shopify Payment Terms">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="name"/>
+                            <field name="instance_id" options="{'no_create':True,'no_create_edit': True}"/>
+                            <field name="shopify_payment_term_id" readonly="True"/>
+                            <field name="shopify_payment_term_gid" readonly="True"/>
+                        </group>
+                        <group>
+                            <field name="odoo_payment_term_id"/>
+                            <field name="payment_term_type" readonly="True"/>
+                            <field name="default"/>
+                        </group>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="shopify_payment_terms_ept_search_view" model="ir.ui.view">
+        <field name="name">shopify.payment.terms.ept.search</field>
+        <field name="model">shopify.payment.terms.ept</field>
+        <field name="arch" type="xml">
+            <search string="Shopify Payment Terms">
+                <field name="name"/>
+                <field name="instance_id"/>
+                <field name="shopify_payment_term_id"/>
+                <field name="payment_term_type"/>
+                <field name="odoo_payment_term_id"/>
+                <field name="default"/>
+                <group>
+                    <filter string="Instance" name="group_by_instance" context="{'group_by': 'instance_id'}"/>
+                    <filter string="Type" name="group_by_type" context="{'group_by': 'payment_term_type'}"/>
+                    <filter string="Odoo Payment Term" name="group_by_odoo_term"
+                            context="{'group_by': 'odoo_payment_term_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_shopify_payment_terms_ept" model="ir.actions.act_window">
+        <field name="name">Shopify Payment Terms</field>
+        <field name="type">ir.actions.act_window</field>
+        <field name="res_model">shopify.payment.terms.ept</field>
+        <field name="view_mode">list</field>
+        <field name="search_view_id" ref="shopify_payment_terms_ept_search_view"/>
+        <field name="context">{'module' : 'shopify_ept', 'create': 0}</field>
+    </record>
+
+    <menuitem id="shopify_payment_terms_ept_menu"
+              name="Payment Terms"
+              parent="shopify_ept.menu_configuration_ept"
+              action="action_shopify_payment_terms_ept"
+              groups="shopify_ept.group_shopify_manager_ept"
+              sequence="5"/>
+</odoo>
