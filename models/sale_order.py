@@ -564,10 +564,135 @@ class SaleOrder(models.Model):
                 self.set_metafield_values_in_order(order_response, instance, sale_order)
 
             if sale_order:
-                order_data_line.write({"state": "done", "processed_at": datetime.now(),
-                                       "sale_order_id": sale_order.id, "order_data": False})
-                _logger.info("Done the Process of order Because Shopify Order(%s) is exist in Odoo and Odoo order is("
-                             "%s)", order_number, sale_order.name)
+                # Scheduled shipped queues must update existing orders.
+                # Emipro's native update method handles Shopify fulfillment.
+                queue = order_data_line.shopify_order_data_queue_id
+
+                if (
+                    queue.queue_type == "shipped"
+                    and queue.created_by == "scheduled_action"
+                    and order_response.get("fulfillment_status") == "fulfilled"
+                    and order_response.get("fulfillments")
+                    and sale_order.state != "cancel"
+                ):
+                    # Only reconcile a fully fulfilled, single-picking order
+                    # when Shopify and Odoo quantities match exactly.
+                    from collections import defaultdict
+
+                    fulfillments = [
+                        f for f in order_response.get("fulfillments", [])
+                        if f.get("status") == "success" and f.get("id")
+                    ]
+
+                    pending = sale_order.picking_ids.filtered(
+                        lambda p:
+                            p.location_dest_id.usage == "customer"
+                            and p.state not in ("done", "cancel")
+                    )
+
+                    safe = (
+                        len(pending) == 1
+                        and len(fulfillments) == 1
+                        and len(order_response.get("fulfillments") or []) == 1
+                    )
+
+                    if safe:
+                        picking = pending[0]
+                        safe = (
+                            picking.state == "assigned"
+                            and all(
+                                move.product_id.tracking == "none"
+                                for move in picking.move_ids
+                                if move.product_id.is_storable
+                            )
+                        )
+
+                    if safe:
+                        shopify_qty = defaultdict(float)
+                        odoo_qty = defaultdict(float)
+
+                        # Shopify can omit line_items inside a successful
+                        # fulfillment. For fully fulfilled orders only,
+                        # compare the complete order lines instead.
+                        fulfillment_lines = fulfillments[0].get("line_items") or []
+
+                        if not fulfillment_lines:
+                            fulfillment_lines = order_response.get("line_items") or []
+
+                        if not fulfillment_lines:
+                            safe = False
+
+                        for item in fulfillment_lines:
+                            line_id = item.get("id")
+                            quantity = item.get("quantity")
+
+                            if not line_id or quantity is None:
+                                safe = False
+                                break
+
+                            try:
+                                quantity = float(quantity)
+                            except (TypeError, ValueError):
+                                safe = False
+                                break
+
+                            if quantity <= 0:
+                                safe = False
+                                break
+
+                            shopify_qty[str(line_id)] += quantity
+
+                        for move in picking.move_ids.filtered(
+                            lambda m: m.product_id.is_storable
+                        ):
+                            line = move.sale_line_id
+                            if not line or not line.shopify_line_id:
+                                safe = False
+                                break
+                            odoo_qty[str(line.shopify_line_id)] += (
+                                move.product_uom._compute_quantity(
+                                    move.product_uom_qty,
+                                    line.product_uom_id
+                                )
+                            )
+
+                        safe = (
+                            safe
+                            and bool(shopify_qty)
+                            and dict(shopify_qty) == dict(odoo_qty)
+                            and all(
+                                move.quantity >= move.product_uom_qty
+                                for move in picking.move_ids
+                                if move.product_id.is_storable
+                            )
+                        )
+
+                    if not safe:
+                        order_data_line.write({
+                            "state": "failed",
+                            "processed_at": datetime.now(),
+                            "sale_order_id": sale_order.id,
+                        })
+                        _logger.warning(
+                            "Shopify fulfillment requires manual review: %s",
+                            order_number,
+                        )
+                        continue
+
+                    self.process_order_fulfillment_ept(
+                        sale_order,
+                        instance,
+                        order_response,
+                        order_data_line,
+                    )
+                    continue
+
+                order_data_line.write({
+                    "state": "done",
+                    "processed_at": datetime.now(),
+                    "sale_order_id": sale_order.id,
+                    "order_data": False,
+                })
                 continue
 
             pos_order = order_response.get("source_name", "") == "pos"
@@ -3756,7 +3881,9 @@ You can take the following actions manually:\n 1. Reserve Order: If the order ha
                     if carrier_id:
                         vals.update({'carrier_id': carrier_id.id, 'carrier_tracking_ref': tracking_number})
                     picking.write(vals)
-        return True
+        return not bool(pickings.filtered(
+            lambda p: p.state not in ("done", "cancel")
+        ))
 
     def prepare_vals_for_move_line(self, move_id, picking):
         """ This method used to prepare a vals for move line.
