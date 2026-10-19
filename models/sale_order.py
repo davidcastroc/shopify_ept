@@ -3418,6 +3418,8 @@ class SaleOrder(models.Model):
         )
 
         if safety_status == "duplicate":
+            if order.shopify_order_status != "fulfilled":
+                order.write({"shopify_order_status": "fulfilled"})
             if queue_line:
                 queue_line.write({
                     "state": "done",
@@ -3479,6 +3481,11 @@ class SaleOrder(models.Model):
                     raise ShopifyFulfillmentValidationError(
                         "Delivery was not marked as synchronized"
                     )
+
+                # Shopify confirmed fulfillment and Odoo delivery is done.
+                # Keep the stored Shopify status synchronized.
+                if order.shopify_order_status != "fulfilled":
+                    order.write({"shopify_order_status": "fulfilled"})
 
         except Exception as error:
             _logger.exception(
