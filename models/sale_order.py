@@ -564,8 +564,8 @@ class SaleOrder(models.Model):
                 self.set_metafield_values_in_order(order_response, instance, sale_order)
 
             if sale_order:
-                # Scheduled shipped queues must update existing orders.
-                # Emipro's native update method handles Shopify fulfillment.
+                # Process existing orders shipped by Shopify through
+                # the same fulfillment validation used by webhooks.
                 queue = order_data_line.shopify_order_data_queue_id
 
                 if (
@@ -575,116 +575,18 @@ class SaleOrder(models.Model):
                     and order_response.get("fulfillments")
                     and sale_order.state != "cancel"
                 ):
-                    # Only reconcile a fully fulfilled, single-picking order
-                    # when Shopify and Odoo quantities match exactly.
-                    from collections import defaultdict
-
-                    fulfillments = [
-                        f for f in order_response.get("fulfillments", [])
-                        if f.get("status") == "success" and f.get("id")
-                    ]
-
-                    pending = sale_order.picking_ids.filtered(
-                        lambda p:
-                            p.location_dest_id.usage == "customer"
-                            and p.state not in ("done", "cancel")
-                    )
-
-                    safe = (
-                        len(pending) == 1
-                        and len(fulfillments) == 1
-                        and len(order_response.get("fulfillments") or []) == 1
-                    )
-
-                    if safe:
-                        picking = pending[0]
-                        safe = (
-                            picking.state == "assigned"
-                            and all(
-                                move.product_id.tracking == "none"
-                                for move in picking.move_ids
-                                if move.product_id.is_storable
-                            )
-                        )
-
-                    if safe:
-                        shopify_qty = defaultdict(float)
-                        odoo_qty = defaultdict(float)
-
-                        # Shopify can omit line_items inside a successful
-                        # fulfillment. For fully fulfilled orders only,
-                        # compare the complete order lines instead.
-                        fulfillment_lines = fulfillments[0].get("line_items") or []
-
-                        if not fulfillment_lines:
-                            fulfillment_lines = order_response.get("line_items") or []
-
-                        if not fulfillment_lines:
-                            safe = False
-
-                        for item in fulfillment_lines:
-                            line_id = item.get("id")
-                            quantity = item.get("quantity")
-
-                            if not line_id or quantity is None:
-                                safe = False
-                                break
-
-                            try:
-                                quantity = float(quantity)
-                            except (TypeError, ValueError):
-                                safe = False
-                                break
-
-                            if quantity <= 0:
-                                safe = False
-                                break
-
-                            shopify_qty[str(line_id)] += quantity
-
-                        for move in picking.move_ids.filtered(
-                            lambda m: m.product_id.is_storable
-                        ):
-                            line = move.sale_line_id
-                            if not line or not line.shopify_line_id:
-                                safe = False
-                                break
-                            odoo_qty[str(line.shopify_line_id)] += (
-                                move.product_uom._compute_quantity(
-                                    move.product_uom_qty,
-                                    line.product_uom_id
-                                )
-                            )
-
-                        safe = (
-                            safe
-                            and bool(shopify_qty)
-                            and dict(shopify_qty) == dict(odoo_qty)
-                            and all(
-                                move.quantity >= move.product_uom_qty
-                                for move in picking.move_ids
-                                if move.product_id.is_storable
-                            )
-                        )
-
-                    if not safe:
-                        order_data_line.write({
-                            "state": "failed",
-                            "processed_at": datetime.now(),
-                            "sale_order_id": sale_order.id,
-                        })
-                        _logger.warning(
-                            "Shopify fulfillment requires manual review: %s",
-                            order_number,
-                        )
-                        continue
-
-                    self.process_order_fulfillment_ept(
+                    result = self.process_order_fulfillment_ept(
                         sale_order,
                         instance,
                         order_response,
                         order_data_line,
                     )
+
+                    if result:
+                        order_data_line.write({
+                            "sale_order_id": sale_order.id,
+                        })
+
                     continue
 
                 order_data_line.write({
@@ -3129,8 +3031,11 @@ class SaleOrder(models.Model):
                 if shopify_note:
                     order.write({"note": shopify_note if shopify_note else ''})
 
-                if need_to_done_queue:
-                    queue_line.write({'state': 'done', 'processed_at': datetime.now()})
+                if need_to_done_queue and queue_line.state != "failed":
+                    queue_line.write({
+                        'state': 'done',
+                        'processed_at': datetime.now(),
+                    })
             except Exception as error:
                 message = "Receive error while process webhook flow, Error is:  (%s)" % (error)
                 _logger.info(message)
@@ -3351,26 +3256,252 @@ class SaleOrder(models.Model):
         else:
             queue_line.state = "done"
 
+    def _shopify_fulfillment_safety_check(self, order, order_data):
+        """Classify fulfillment without modifying inventory."""
+        from collections import defaultdict
+
+        if order_data.get("fulfillment_status") != "fulfilled":
+            return "blocked", "Partial fulfillment requires review"
+
+        fulfillments = order_data.get("fulfillments") or []
+        successful = [
+            f for f in fulfillments
+            if f.get("status") == "success" and f.get("id")
+        ]
+
+        if len(fulfillments) != 1 or len(successful) != 1:
+            return "blocked", "Expected exactly one successful fulfillment"
+
+        fulfillment = successful[0]
+        fulfillment_id = str(fulfillment["id"])
+
+        outgoing = order.picking_ids.filtered(
+            lambda p:
+                p.location_dest_id.usage == "customer"
+                and p.state != "cancel"
+        )
+        completed = outgoing.filtered(lambda p: p.state == "done")
+        pending = outgoing.filtered(lambda p: p.state != "done")
+
+        processed = completed.filtered(
+            lambda p: str(p.shopify_fulfillment_id or "") == fulfillment_id
+        )
+
+        if processed:
+            if pending:
+                return "blocked", "Fulfillment already used; pending delivery exists"
+            if len(outgoing) == 1:
+                picking = processed[0]
+                shopify_qty = defaultdict(float)
+                odoo_qty = defaultdict(float)
+
+                lines = fulfillment.get("line_items") or []
+                if not lines:
+                    lines = order_data.get('line_items') or []
+
+                if not lines:
+                    return "blocked", "Duplicate fulfillment has no line items"
+
+                for item in lines:
+                    line_id = item.get("id")
+                    quantity = item.get("quantity")
+
+                    if not line_id or quantity is None:
+                        return "blocked", "Invalid duplicate Shopify line"
+
+                    try:
+                        quantity = float(quantity)
+                    except (TypeError, ValueError):
+                        return "blocked", "Invalid duplicate Shopify quantity"
+
+                    if quantity <= 0:
+                        return "blocked", "Invalid duplicate Shopify quantity"
+
+                    shopify_qty[str(line_id)] += quantity
+
+                moves = picking.move_ids.filtered(
+                    lambda m: m.product_id.is_storable and m.state == "done"
+                )
+
+                if not moves:
+                    return "blocked", "Duplicate has no completed stock moves"
+
+                for move in moves:
+                    line = move.sale_line_id
+
+                    if not line or not line.shopify_line_id:
+                        return "blocked", "Duplicate missing Shopify line ID"
+
+                    quantity = move.product_uom._compute_quantity(
+                        move.quantity,
+                        line.product_uom_id,
+                    )
+
+                    odoo_qty[str(line.shopify_line_id)] += quantity
+
+                if dict(shopify_qty) != dict(odoo_qty):
+                    return "blocked", "Duplicate fulfillment quantities differ"
+
+                return "duplicate", "Fulfillment already completed"
+            return "blocked", "Multiple historical deliveries require review"
+
+        if completed or len(pending) != 1:
+            return "blocked", "Multiple or previously completed deliveries"
+
+        picking = pending[0]
+
+        if picking.state != "assigned":
+            return "blocked", "Delivery is not assigned"
+
+        moves = picking.move_ids.filtered(
+            lambda m: m.product_id.is_storable and m.state != "cancel"
+        )
+
+        if not moves:
+            return "blocked", "No stockable moves"
+
+        shopify_qty = defaultdict(float)
+        odoo_qty = defaultdict(float)
+
+        lines = fulfillment.get("line_items") or []
+        if not lines:
+            lines = order_data.get('line_items') or []
+
+        if not lines:
+            return "blocked", "Fulfillment has no line items"
+
+        for item in lines:
+            line_id = item.get("id")
+            quantity = item.get("quantity")
+
+            if not line_id or quantity is None:
+                return "blocked", "Invalid Shopify line"
+
+            try:
+                quantity = float(quantity)
+            except (TypeError, ValueError):
+                return "blocked", "Invalid Shopify quantity"
+
+            if quantity <= 0:
+                return "blocked", "Invalid Shopify quantity"
+
+            shopify_qty[str(line_id)] += quantity
+
+        for move in moves:
+            line = move.sale_line_id
+
+            if not line or not line.shopify_line_id:
+                return "blocked", "Missing Shopify line ID"
+
+            if move.product_id.tracking != "none":
+                return "blocked", "Tracked product requires review"
+
+            if move.quantity + 0.000001 < move.product_uom_qty:
+                return "blocked", "Insufficient prepared quantity"
+
+            quantity = move.product_uom._compute_quantity(
+                move.product_uom_qty,
+                line.product_uom_id,
+            )
+
+            odoo_qty[str(line.shopify_line_id)] += quantity
+
+        if dict(shopify_qty) != dict(odoo_qty):
+            return "blocked", "Shopify/Odoo quantities differ"
+
+        return "new", "Validated fulfillment"
+
     def process_order_fulfillment_ept(self, order, shopify_instance, order_data, queue_line):
-        message = ''
-        fulfilled = False
-        common_log_line_obj = self.env["common.log.lines.ept"]
-        if order_data.get('fulfillment_status') == 'fulfilled':
-            fulfilled = order.fulfilled_shopify_order(order_data)
-        if order_data.get('fulfillment_status') == 'partial':
-            fulfilled = order.partial_fulfilled_shopify_order(order_data, shopify_instance)
-        if not fulfilled:
-            message = "The order [%s] has been shipped in Shopify, but the system could not validate the delivery order due to inventory unavailability in Odoo. The automatic validation of delivery orders did not occur for the following reasons:\n 1.Inventory Unavailability: The inventory is not available in the Odoo warehouse, and the option to perform a force transfer is not enabled in the webhook configuration.\n 2.Product Traceability: The product traceability relies on lot numbers, and the inventory  is not in Odoo.\n If you have enabled the Force Transfer option for webhook configuration, and the product traceability is set to Lot/Serial while inventory is unavailable, the system will not process those delivery orders." % order_data.get(
-                'name')
-        if message:
-            common_log_line_obj.create_common_log_line_ept(shopify_instance_id=shopify_instance.id, message=message,
-                                                           module="shopify_ept",
-                                                           model_name='sale.order',
-                                                           order_ref=order_data.get('name'),
-                                                           shopify_order_data_queue_line_id=queue_line.id if queue_line else False)
-            queue_line.write({'state': 'failed', 'processed_at': datetime.now()})
-        else:
-            queue_line.state = "done"
+        """Safely process a complete Shopify fulfillment."""
+        safety_status, safety_reason = (
+            self._shopify_fulfillment_safety_check(order, order_data)
+        )
+
+        if safety_status == "duplicate":
+            if queue_line:
+                queue_line.write({
+                    "state": "done",
+                    "processed_at": datetime.now(),
+                })
+            return True
+
+        if safety_status != "new":
+            _logger.warning(
+                "Shopify fulfillment blocked: order=%s reason=%s",
+                order.name,
+                safety_reason,
+            )
+            if queue_line:
+                queue_line.write({
+                    "state": "failed",
+                    "processed_at": datetime.now(),
+                })
+            return False
+
+        fulfillment = order_data["fulfillments"][0]
+        fulfillment_id = str(fulfillment["id"])
+
+        class ShopifyFulfillmentValidationError(Exception):
+            pass
+
+        try:
+            with self.env.cr.savepoint():
+                fulfilled = order.fulfilled_shopify_order(order_data)
+
+                if not fulfilled:
+                    raise ShopifyFulfillmentValidationError(
+                        "Odoo did not complete the delivery"
+                    )
+
+                outgoing = order.picking_ids.filtered(
+                    lambda p:
+                        p.location_dest_id.usage == "customer"
+                        and p.state != "cancel"
+                )
+
+                completed = outgoing.filtered(
+                    lambda p: p.state == "done"
+                )
+
+                if len(outgoing) != 1 or len(completed) != 1:
+                    raise ShopifyFulfillmentValidationError(
+                        "Unexpected delivery state after validation"
+                    )
+
+                picking = completed[0]
+
+                if str(picking.shopify_fulfillment_id or "") != fulfillment_id:
+                    raise ShopifyFulfillmentValidationError(
+                        "Shopify fulfillment ID was not registered"
+                    )
+
+                if not picking.updated_in_shopify:
+                    raise ShopifyFulfillmentValidationError(
+                        "Delivery was not marked as synchronized"
+                    )
+
+        except Exception as error:
+            _logger.exception(
+                "Shopify fulfillment validation failed: order=%s error=%s",
+                order.name,
+                error,
+            )
+
+            if queue_line:
+                queue_line.write({
+                    "state": "failed",
+                    "processed_at": datetime.now(),
+                })
+
+            return False
+
+        if queue_line:
+            queue_line.write({
+                "state": "done",
+                "processed_at": datetime.now(),
+            })
+
+        return True
 
     def webhook_paid_workflow_process_ept(self, order, instance, queue_line, order_data, shopify_status):
         invoices = order.invoice_ids
@@ -3841,7 +3972,8 @@ You can take the following actions manually:\n 1. Reserve Order: If the order ha
                         return True
                     if picking.state != "assigned":
                         return False
-                self.transfer_validate_ept(picking)
+                if not self.transfer_validate_ept(picking):
+                    return False
                 if picking.state == "done":
                     picking.message_post(body=_("Picking is done by Webhook as Order is fulfilled in Shopify."))
                     vals = {'updated_in_shopify': True, 'shopify_fulfillment_id': fulfillment_data_id}
@@ -3852,7 +3984,8 @@ You can take the following actions manually:\n 1. Reserve Order: If the order ha
                 if picking.state in ("done", "cancel"):
                     continue
                 if picking.state == "assigned":
-                    self.transfer_validate_ept(picking)
+                    if not self.transfer_validate_ept(picking):
+                        return False
                     message = "Picking is done by Webhook as Order is fulfilled in Shopify."
                 if picking.state not in ("assigned", "done") and all(
                         move.product_id.tracking == 'none' for move in picking.move_ids):
@@ -3863,7 +3996,8 @@ You can take the following actions manually:\n 1. Reserve Order: If the order ha
                         need_validate_transfer = True
                     if need_validate_transfer:
                         message = "Picking is forcefully done by Webhook as Order is fulfilled in Shopify."
-                        self.transfer_validate_ept(picking)
+                        if not self.transfer_validate_ept(picking):
+                            return False
                 elif picking.state not in ("assigned", "done") and any(
                         move.product_id.tracking != 'none' for move in picking.move_ids):
                     need_validate_transfer = False
@@ -3874,7 +4008,8 @@ You can take the following actions manually:\n 1. Reserve Order: If the order ha
                         need_validate_transfer = True
                     if need_validate_transfer and picking.state == 'assigned':
                         message = "Picking is forcefully done by Webhook as Order is fulfilled in Shopify."
-                        self.transfer_validate_ept(picking)
+                        if not self.transfer_validate_ept(picking):
+                            return False
                 if picking.state == "done":
                     picking.message_post(body=_(message))
                     vals = {'updated_in_shopify': True, 'shopify_fulfillment_id': fulfillment_data_id}
@@ -4531,18 +4666,47 @@ You can take the following actions manually:\n 1. Reserve Order: If the order ha
 
     def transfer_validate_ept(self, transfer):
         """
-        This method is use to call button validate of transfer.
-        @author: Haresh Mori @Emipro Technologies Pvt. Ltd on date 12 October 2023 .
+        Validate a Shopify delivery without automatically accepting
+        backorders or other Odoo validation wizards.
         """
-        skip_sms = {"skip_sms": True}
-        result = transfer.with_context(**skip_sms).button_validate()
+        if not transfer or len(transfer) != 1:
+            _logger.warning(
+                "Shopify transfer validation rejected: expected one picking"
+            )
+            return False
+
+        if transfer.state == "done":
+            return True
+
+        if transfer.state != "assigned":
+            _logger.warning(
+                "Shopify transfer validation rejected: picking=%s state=%s",
+                transfer.name,
+                transfer.state,
+            )
+            return False
+
+        result = transfer.with_context(skip_sms=True).button_validate()
+
         if isinstance(result, dict):
-            dict(result.get("context")).update(skip_sms)
-            context = result.get("context")  # Merging dictionaries.
-            model = result.get("res_model", "")
-            if model:
-                record = self.env[model].with_context(context).create({})
-                record.process()
+            _logger.warning(
+                "Shopify transfer requires manual validation: "
+                "picking=%s wizard=%s",
+                transfer.name,
+                result.get("res_model"),
+            )
+            return False
+
+        if transfer.state != "done":
+            _logger.warning(
+                "Shopify transfer validation incomplete: "
+                "picking=%s state=%s",
+                transfer.name,
+                transfer.state,
+            )
+            return False
+
+        return True
 
     def _prepare_confirmation_values(self):
         """
